@@ -7,7 +7,7 @@ Sentence tokenization splits a paragraph into individual sentences.
 ```python
 from nltk.tokenize import sent_tokenize
 import nltk
-nltk.download('punkt')
+nltk.download('punkt_tab')
 
 text = "NLP is powerful. It is used in chatbots. Tokenization is the first step."
 sentences = sent_tokenize(text)
