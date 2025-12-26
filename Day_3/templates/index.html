@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Local Gemini Chat</title>
+</head>
+<body>
+
+<h3>Gemini Chat (localhost)</h3>
+
+<input id="msg" placeholder="Type message" />
+<button onclick="send()">Send</button>
+
+<pre id="chat"></pre>
+
+<script>
+async function send() {
+  const input = document.getElementById("msg");
+  const chat = document.getElementById("chat");
+
+  const res = await fetch("http://127.0.0.1:8080/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message: input.value })
+  });
+
+  const data = await res.json();
+
+  chat.textContent += "You: " + input.value + "\n";
+  chat.textContent += "AI: " + data.reply + "\n\n";
+
+  input.value = "";
+}
+</script>
+
+</body>
+</html>
