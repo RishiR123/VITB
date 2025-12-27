@@ -121,6 +121,11 @@ Expected Observation:
 ### Practical 3: Embedding-Based Search (Mini Demo)
 
 ```python
+import numpy as np
+
+def cosine_similarity(vec1, vec2):
+    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))
+
 sentences = [
     "I love machine learning",
     "The weather is very hot today",
@@ -130,25 +135,31 @@ sentences = [
 
 query = "learning AI"
 
-query_emb = client.models.embed_content(
+# Embed query
+query_response = client.models.embed_content(
     model="text-embedding-004",
-    content=query
-)['embedding']
+    contents=query
+)
+query_emb = np.array(query_response.embeddings[0].values)
 
 scores = []
 
 for sent in sentences:
-    sent_emb = client.models.embed_content(
+    sent_response = client.models.embed_content(
         model="text-embedding-004",
-        content=sent
-    )['embedding']
+        contents=sent
+    )
+    sent_emb = np.array(sent_response.embeddings[0].values)
+
     score = cosine_similarity(query_emb, sent_emb)
     scores.append((sent, score))
 
+# Sort by similarity
 scores.sort(key=lambda x: x[1], reverse=True)
 
 for s, sc in scores:
     print(s, "->", sc)
+
 ```
 
 Explanation:
