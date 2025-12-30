@@ -73,7 +73,7 @@ client = genai.Client(api_key="YOUR_API_KEY")
 ```python
 response = client.models.embed_content(
     model="text-embedding-004",
-    content="NLP is a core part of artificial intelligence"
+    contents="NLP is a core part of artificial intelligence"
 )
 
 embedding = response
