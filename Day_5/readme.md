@@ -76,8 +76,8 @@ response = client.models.embed_content(
     content="NLP is a core part of artificial intelligence"
 )
 
-embedding = response['embedding']
-print(len(embedding))
+embedding = response
+print(embedding)
 ```
 
 Explanation:
