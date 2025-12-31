@@ -101,12 +101,12 @@ text2 = "Artificial intelligence is changing industries"
 emb1 = client.models.embed_content(
     model="text-embedding-004",
     content=text1
-)['embedding']
+)embeddings[0].values
 
 emb2 = client.models.embed_content(
     model="text-embedding-004",
     content=text2
-)['embedding']
+).embeddings[0].values
 
 similarity = cosine_similarity(emb1, emb2)
 print("Similarity:", similarity)
