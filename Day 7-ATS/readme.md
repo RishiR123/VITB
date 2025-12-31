@@ -50,6 +50,10 @@ The goal is to automate this process using **GenAI-powered reasoning**.
 
 ---
 
+'''bash
+d
+'''
+
 ### Resume Parsing
 
 Resume parsing means converting **unstructured resume text** into structured information such as:
