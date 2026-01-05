@@ -152,9 +152,9 @@ pip install google-generativeai
 ## 🔑 Step 1: Gemini API Setup
 
 ```python
-import google.generativeai as genai
+from google import genai
 
-genai.configure(api_key="YOUR_GEMINI_API_KEY")
+genai.Client(api_key="YOUR_GEMINI_API_KEY")
 ```
 
 ---
