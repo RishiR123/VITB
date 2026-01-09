@@ -4,85 +4,76 @@
 
 ## Day 13 – Chunking, Loaders & Splitters (Foundation of RAG)
 
-### 1. Why This Matters
+### Practical 13.1 – Load Documents (PDF/Text)
 
-In RAG systems, **retrieval quality depends directly on chunking quality**. Poor chunking leads to irrelevant retrieval and hallucinations, even with strong LLMs.
+**Explanation:**
+This step ingests raw documents into the RAG system. A loader reads files (PDF, text, etc.) and converts them into a standardized `Document` object containing:
 
----
+* `page_content`: the extracted text
+* `metadata`: page number, source file, URL, etc.
 
-### 2. Document Loaders
+Loaders are the **entry point of knowledge** into RAG. If text extraction is wrong or incomplete, retrieval will fail regardless of model quality.
 
-**Definition:** Loaders ingest raw data and convert it into structured text with metadata.
+```python
+from langchain.document_loaders import PyPDFLoader
 
-**Common Data Sources:**
-
-* PDF files
-* Word documents
-* HTML / Web pages
-* Markdown files
-* Databases
-* APIs
-
-**Typical Output Structure:**
-
-* `page_content`: extracted text
-* `metadata`: source, page number, URL, section, etc.
-
-Metadata is essential for **filtering, routing, and citation**.
+loader = PyPDFLoader("sample.pdf")
+documents = loader.load()
+print(len(documents))
+print(documents[0].page_content[:300])
+```
 
 ---
 
-### 3. Chunking
+### Practical 13.2 – Chunking with Recursive Splitter
 
-**Why chunking is required:**
+**Explanation:**
+LLMs and embedding models work best on focused semantic units. Recursive chunking splits documents hierarchically (paragraph → sentence → word) until chunks fit the desired size.
 
-* LLMs have limited context windows
-* Embeddings perform better on focused semantic units
+Why this matters:
 
----
-
-### 4. Chunking Strategies
-
-#### a) Fixed-size Chunking
-
-* Splits text into equal-sized chunks (e.g., 500 tokens)
-* Simple and fast
-* May break semantic meaning
-
-#### b) Overlapping Chunking
-
-* Adjacent chunks overlap by 10–20%
-* Preserves context across boundaries
-
-#### c) Recursive Chunking (Recommended Default)
-
-* Splits hierarchically: paragraph → sentence → word
+* Prevents breaking sentences unnaturally
+* Preserves meaning better than fixed splitting
 * Works well for PDFs and technical documents
 
-#### d) Semantic Chunking
+Chunk size and overlap directly control retrieval accuracy.
 
-* Uses embeddings to split based on meaning
-* High quality but computationally expensive
+```python
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=500,
+    chunk_overlap=100
+)
+
+chunks = text_splitter.split_documents(documents)
+print(len(chunks))
+```
 
 ---
 
-### 5. Chunking Best Practices
+### Practical 13.3 – Store Chunks in Vector DB (FAISS)
 
-* Chunk size: **300–800 tokens**
-* Overlap: **10–20%**
-* Always chunk before embedding
-* Manually test retrieval quality
+**Explanation:**
+Each chunk is converted into an embedding (vector representation of meaning). These vectors are stored in a vector database (FAISS) to enable similarity search.
 
----
+Why FAISS:
 
-### 6. Splitters
+* Fast
+* Open-source
+* Ideal for local experimentation
 
-Splitters define *how* text is broken:
+At this stage, the system has a **searchable knowledge base**.
 
-* Character-based
-* Token-based
-* Sentence-based
-* Recursive splitters
+```python
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.vectorstores import FAISS
+
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+vectorstore = FAISS.from_documents(chunks, embeddings)
+```
+
+> Practical takeaway: Chunk size and overlap directly affect retrieval quality.
 
 > Interview insight: Most RAG failures come from poor chunking, not poor models.
 
@@ -90,52 +81,83 @@ Splitters define *how* text is broken:
 
 ## Day 14 – RAG Pipeline: Retriever + LLM
 
-### 1. End-to-End RAG Pipeline
+### Practical 14.1 – Build Retriever
 
-Query → Embedding → Retriever → Top-K Chunks → Prompt → LLM → Answer
+**Explanation:**
+The retriever is responsible for searching the vector database and returning the most relevant chunks for a user query.
 
----
+Key idea:
 
-### 2. Retriever
+* The retriever does **semantic search**, not keyword search
+* It compares query embeddings with stored chunk embeddings
 
-**Role:** Finds the most relevant chunks for a given query.
+The `k` value controls how many chunks are returned.
 
-**Similarity Methods:**
-
-* Cosine similarity
-* Dot product
-* Hybrid (BM25 + vectors)
-
-**Top-K Selection Guidelines:**
-
-* K = 3–5 → precision-focused
-* K = 6–8 → recall-focused
-* Too large K introduces noise
+```python
+retriever = vectorstore.as_retriever(search_kwargs={"k": 5})
+```
 
 ---
 
-### 3. Prompt Construction
+### Practical 14.2 – Query Retrieval
 
-**Weak Prompt:**
-"Answer using the context"
+**Explanation:**
+Here, a user question is converted into an embedding and matched against stored vectors. The output is a list of the most relevant document chunks.
 
-**Strong Prompt:**
+This step answers:
 
-* Enforce factual grounding
-* Explicitly restrict answers to retrieved context
-* Define behavior when answer is missing
+* *Did the system find the right information?*
+
+Always manually inspect retrieved chunks during development.
+
+```python
+query = "What is Retrieval Augmented Generation?"
+retrieved_docs = retriever.get_relevant_documents(query)
+
+for doc in retrieved_docs:
+    print(doc.page_content[:200])
+```
 
 ---
 
-### 4. Role of the LLM
+### Practical 14.3 – RAG Prompt + LLM Call
 
-* Does not search
-* Does not store external knowledge
-* Only reasons over retrieved content
+**Explanation:**
+This is where generation happens. Retrieved chunks are injected into a carefully designed prompt and passed to the LLM.
+
+Important rules:
+
+* LLM must answer **only from context**
+* If context is missing, the model should explicitly say so
+
+The LLM does not retrieve data—it only reasons over provided text.
+
+```python
+from langchain.llms import HuggingFacePipeline
+
+prompt = f"""
+Answer strictly using the context below.
+If the answer is not present, say 'Not in context'.
+
+Context:
+{retrieved_docs}
+
+Question:
+{query}
+"""
+
+llm = HuggingFacePipeline.from_model_id(
+    model_id="google/flan-t5-base",
+    task="text2text-generation"
+)
+
+response = llm(prompt)
+print(response)
+```
 
 ---
 
-### 5. Common Failure Modes
+### Common Failure Modes
 
 * Irrelevant retrieval
 * Excessive context
@@ -145,50 +167,54 @@ Query → Embedding → Retriever → Top-K Chunks → Prompt → LLM → Answer
 
 ## Day 15 – RAG Evaluation: Relevance & Grounding
 
-### 1. Why Evaluation Is Mandatory
+### Practical 15.1 – Retrieval Relevance Check
 
-RAG systems may appear correct while silently hallucinating. Evaluation ensures **trust and reliability**.
+**Explanation:**
+This evaluates whether the retriever fetched useful chunks.
 
----
+Precision measures:
 
-### 2. Core Evaluation Dimensions
+* How many retrieved chunks are actually relevant
 
-#### a) Retrieval Relevance
+Poor retrieval relevance means the generator will fail even with a perfect prompt.
 
-* Did the retriever fetch the correct chunks?
-* Metrics: Recall@K, Precision@K
-
-#### b) Answer Relevance
-
-* Does the answer address the user question?
-
-#### c) Grounding / Faithfulness (Most Critical)
-
-* Is the answer strictly supported by retrieved context?
+```python
+relevant = sum([1 for d in retrieved_docs if "RAG" in d.page_content])
+precision = relevant / len(retrieved_docs)
+print("Precision:", precision)
+```
 
 ---
 
-### 3. Hallucination Types
+### Practical 15.2 – LLM as Judge (Faithfulness)
 
-* Unsupported facts
-* Over-generalization
-* Mixing external knowledge
+**Explanation:**
+Faithfulness checks whether the generated answer is grounded in the retrieved context.
+
+Using an LLM as a judge allows:
+
+* Scalable evaluation
+* Detection of hallucinations
+
+This step is critical for production-grade RAG systems.
+
+```python
+eval_prompt = f"""
+Check if the answer is supported by the context.
+Answer Yes or No.
+
+Context:
+{retrieved_docs}
+
+Answer:
+{response}
+"""
+
+eval_result = llm(eval_prompt)
+print("Grounded:", eval_result)
+```
 
 ---
-
-### 4. Evaluation Approaches
-
-* Rule-based checks
-* LLM-as-a-Judge evaluation
-
----
-
-### 5. Evaluation Tools
-
-* RAGAS
-* TruLens
-* OpenEval
-* Custom LLM evaluators
 
 > Production rule: No RAG system should go live without automated evaluation.
 
@@ -196,46 +222,64 @@ RAG systems may appear correct while silently hallucinating. Evaluation ensures 
 
 ## Day 16 – Advanced RAG: Query Routing
 
-### 1. Why Query Routing
+### Practical 16.1 – Rule-Based Query Routing
 
-Different queries require different retrieval strategies. Routing improves **accuracy, speed, and cost**.
+**Explanation:**
+Not all queries need the same retrieval depth. Rule-based routing uses simple heuristics to decide how a query should be handled.
 
----
+Examples:
 
-### 2. Query Types
+* Definitions → small index
+* Comparisons → deeper retrieval
 
-* Factual
-* Analytical
-* Navigational
-* Conversational (follow-ups)
+This improves speed and reduces cost.
 
----
+```python
+def route_query(query):
+    if "compare" in query.lower():
+        return "deep_retrieval"
+    elif "define" in query.lower():
+        return "faq"
+    return "general"
 
-### 3. Query Routing Architecture
-
-User Query → Router (Rule / LLM) → Data Source → Retrieval / Tool
-
----
-
-### 4. Routing Strategies
-
-#### a) Rule-based Routing
-
-* Keyword or pattern matching
-* Simple and deterministic
-
-#### b) LLM-based Routing
-
-* LLM decides which data source or tool to use
-* Can route to vector DB, SQL, web search, or no retrieval
+route = route_query(query)
+print("Route:", route)
+```
 
 ---
 
-### 5. Benefits of Routing
+### Practical 16.2 – LLM-Based Router
 
-* Reduced latency
-* Lower cost
-* Higher relevance
+**Explanation:**
+Instead of hard-coded rules, an LLM can classify queries dynamically.
+
+Advantages:
+
+* Handles complex language
+* Adapts to new query patterns
+
+The router decides whether to:
+
+* Retrieve documents
+* Use a database
+* Answer directly
+
+```python
+router_prompt = f"""
+Classify the query into one of these:
+faq, deep_retrieval, no_retrieval
+
+Query:
+{query}
+"""
+
+route = llm(router_prompt)
+print(route)
+```
+
+---
+
+### Benefits of Routing
 
 ---
 
@@ -292,3 +336,170 @@ Retrieve → Rank → Compress → Inject → Generate
 ## Overall Learning Outcome
 
 By Day 17, learners can design, evaluate, and optimize **production-grade RAG systems** with confidence.
+
+---
+
+# Detailed Explanation of All Practicals (Step-by-Step)
+
+This section explains **what each practical does, why it exists, and how it fits into the RAG system**. This is meant for deep understanding, not just execution.
+
+---
+
+## Day 13 Practicals – Chunking, Loaders & Vector Storage
+
+### Practical 13.1 – Document Loading
+
+**What happens:**
+
+* A loader reads a PDF and extracts text page by page.
+* Each page becomes a `Document` object.
+
+**Why this is needed:**
+LLMs cannot read raw files. All external knowledge must be converted into clean text first.
+
+**Key concept learned:**
+Data ingestion layer of RAG.
+
+---
+
+### Practical 13.2 – Recursive Chunking
+
+**What happens:**
+
+* Large documents are split into smaller chunks.
+* Recursive splitting preserves semantic boundaries (paragraphs, sentences).
+
+**Why this is needed:**
+
+* Embeddings work best on focused text
+* Prevents context overflow
+
+**Key concept learned:**
+Chunk size and overlap directly control retrieval accuracy.
+
+---
+
+### Practical 13.3 – Vector Store Creation (FAISS)
+
+**What happens:**
+
+* Each chunk is converted into an embedding (vector)
+* Vectors are stored in FAISS for similarity search
+
+**Why this is needed:**
+Traditional databases cannot search by meaning. Vector databases enable semantic search.
+
+**Key concept learned:**
+Knowledge storage layer of RAG.
+
+---
+
+## Day 14 Practicals – Retriever + LLM (Core RAG Pipeline)
+
+### Practical 14.1 – Retriever Creation
+
+**What happens:**
+
+* The vector database is wrapped as a retriever
+* Top-K similar chunks are fetched per query
+
+**Why this is needed:**
+LLMs should only see relevant knowledge, not the entire dataset.
+
+---
+
+### Practical 14.2 – Query Retrieval
+
+**What happens:**
+
+* User query is embedded
+* Similar chunks are retrieved using cosine similarity
+
+**Why this is needed:**
+This is where factual grounding starts. Bad retrieval = bad answers.
+
+---
+
+### Practical 14.3 – RAG Prompt + Generation
+
+**What happens:**
+
+* Retrieved chunks are injected into the prompt
+* LLM is forced to answer only from context
+
+**Why this is needed:**
+Prevents hallucinations and ensures explainable answers.
+
+**Key concept learned:**
+LLM is a reasoning engine, not a knowledge store.
+
+---
+
+## Day 15 Practicals – Evaluation (Trust & Safety)
+
+### Practical 15.1 – Retrieval Relevance (Precision)
+
+**What happens:**
+
+* Checks how many retrieved chunks are actually relevant
+
+**Why this is needed:**
+Even strong LLMs fail if retriever quality is low.
+
+---
+
+### Practical 15.2 – Grounding / Faithfulness Check
+
+**What happens:**
+
+* LLM judges whether the answer is supported by context
+
+**Why this is needed:**
+RAG systems often hallucinate subtly. This catches silent failures.
+
+**Key concept learned:**
+Evaluation is mandatory for production RAG.
+
+---
+
+## Day 16 Practicals – Query Routing (Advanced Intelligence)
+
+### Practical 16.1 – Rule-Based Routing
+
+**What happens:**
+
+* Simple logic routes queries to different retrieval paths
+
+**Why this is needed:**
+Not all questions require deep retrieval.
+
+---
+
+### Practical 16.2 – LLM-Based Routing
+
+**What happens:**
+
+* LLM decides whether retrieval is required
+* Routes to FAQ, deep search, or no retrieval
+
+**Why this is needed:**
+Improves speed, cost efficiency, and accuracy.
+
+**Key concept learned:**
+RAG becomes adaptive and intelligent.
+
+---
+
+## Day 17 Concepts – Context Optimization (Conceptual Explanation)
+
+Although implementation varies, the idea is consistent:
+
+**Retrieve → Rank → Compress → Generate**
+
+**Why this matters:**
+
+* LLM context is expensive
+* Less but relevant context gives better answers
+
+**Final insight:**
+Good RAG systems win not by bigger models, but by better context control.
